@@ -48,6 +48,14 @@ jobs:
           push: false
           tags: ${{ steps.meta.outputs.tags }}
 
+      - name: Remove previous Docker container
+        shell: pwsh
+        run: |
+          $containerId = docker ps -aq --filter "name=^/hello-world-nginx$"
+          if ($containerId) {
+            docker rm -f hello-world-nginx
+          }
+
       - name: Run Docker container
         run: docker run -d --name hello-world-nginx -p 8080:80 hello-world-nginx:v1
 
@@ -55,3 +63,12 @@ jobs:
         run: |
           sleep 2
           curl --fail http://localhost:8080
+
+      - name: Clean up Docker container
+        if: always()
+        shell: pwsh
+        run: |
+          $containerId = docker ps -aq --filter "name=^/hello-world-nginx$"
+          if ($containerId) {
+            docker rm -f hello-world-nginx
+          }
