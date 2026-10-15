@@ -1,4 +1,4 @@
-name: Kubernetes Pod Test
+name: Kubernetes Pod Test v1.0
 
 on:
   workflow_dispatch:
