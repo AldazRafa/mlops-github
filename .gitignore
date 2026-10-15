@@ -29,6 +29,9 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Local GitHub Actions runner installation
+/actions-runner/
+
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
