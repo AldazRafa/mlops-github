@@ -1,0 +1,9 @@
+$schema: https://azuremlschemas.azureedge.net/latest/environment.schema.json
+
+name: aml-training-cli
+version: 0.1.0
+description: Custom environment for AI Training
+
+conda_file: ../components/training/conda.yaml
+image: mcr.microsoft.com/azureml/openmpi5.0-ubuntu24.04:latest
+os_type: linux

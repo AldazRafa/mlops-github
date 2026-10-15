@@ -1,0 +1,79 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Generated model artifacts
+*.keras
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+*.joblib
+*.tflite
+*.npy
+*.npz
+saved_model/
+checkpoints/
+models/
+model_output/
+model_outputs/
+unpacked_keras/
+
+# ML experiment and pipeline outputs
+outputs/
+output/
+artifacts/
+mlruns/
+runs/
+wandb/
+azureml-logs/
+animal-classification/
+
+# Exercise-generated files and caches
+exercises/**/__pycache__/
+exercise/**/__pycache__/
+
+# Downloaded archives
+*.zip
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+animals/

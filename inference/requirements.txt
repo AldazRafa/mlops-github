@@ -1,0 +1,6 @@
+tensorflow==2.21.0
+fastapi[standard]==0.142.2
+Pillow==12.3.0
+numpy==2.5.3
+
+huggingface_hub
