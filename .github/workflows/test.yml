@@ -2,11 +2,13 @@
 
 name: My First Workflow
 
+permissions:
+  contents: read
+  packages: write
+
 # Controls when the workflow runs
 on:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
 
   # Allows manual execution from the Actions tab
@@ -34,7 +36,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: hello-world-nginx
+          images: ghcr.io/aldazrafa/hello-world-nginx
           tags: |
             type=raw,value=v1
             type=ref,event=branch
@@ -47,6 +49,7 @@ jobs:
           load: true
           push: false
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
       - name: Remove previous Docker container
         shell: powershell
@@ -57,7 +60,7 @@ jobs:
           }
 
       - name: Run Docker container
-        run: docker run -d --name hello-world-nginx -p 8080:80 hello-world-nginx:v1
+        run: docker run -d --name hello-world-nginx -p 8080:80 ghcr.io/aldazrafa/hello-world-nginx:v1
 
       - name: Test Docker container
         shell: powershell
@@ -73,3 +76,16 @@ jobs:
           if ($containerId) {
             docker rm -f hello-world-nginx
           }
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        shell: powershell
+        run: docker push --all-tags ghcr.io/aldazrafa/hello-world-nginx
