@@ -1,0 +1,34 @@
+name: Kubernetes Pod Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  create-pod:
+    runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Pull source code
+        uses: actions/checkout@v4
+
+      - name: Generate random Pod name
+        shell: powershell
+        run: |
+          $id = Get-Random -Minimum 10000 -Maximum 99999
+          (Get-Content k8s/test-pod.yaml -Raw).Replace("{ID}", $id) |
+            Set-Content k8s/generated-pod.yaml
+          Write-Host "Created mypod-$id"
+
+      - name: Apply Pod
+        run: kubectl apply -f k8s/generated-pod.yaml
+
+      - name: Wait for Pod
+        run: kubectl wait --for=condition=Ready pod -l name=mypod -n default --timeout=120s
+
+      - name: Check Pods
+        run: kubectl get pods -n default -l name=mypod
