@@ -1,0 +1,25 @@
+name: Azure read-only check
+
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    environment: mlops-demo
+
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify scoped Azure access
+        env:
+          GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: az group show --name "$GROUP" --query name --output tsv
