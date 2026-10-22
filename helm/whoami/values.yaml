@@ -1,0 +1,11 @@
+replicaCount: 1
+
+image:
+  repository: traefik/whoami
+  tag: v1.12.0
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30080
+

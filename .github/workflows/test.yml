@@ -8,9 +8,6 @@ permissions:
 
 # Controls when the workflow runs
 on:
-  push:
-    branches: [main]
-
   # Allows manual execution from the Actions tab
   workflow_dispatch:
 
