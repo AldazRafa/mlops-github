@@ -20,6 +20,7 @@ jobs:
       ACR_NAME: mlopsrafaacr
       IMAGE_NAME: animal-api
       CONTAINER_APP: animal-api
+      ACR_PULL_IDENTITY: /subscriptions/9347b919-45c5-4545-97c0-aaacebb2ea5e/resourceGroups/mlops-demo-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/animal-api-pull
 
     steps:
       - name: Check out repository
@@ -77,7 +78,7 @@ jobs:
             {
               echo '### Image published; Container App still needs initial setup'
               echo "Image: `$IMAGE`"
-              echo "Create Container App `$CONTAINER_APP` in environment `mlops-demo-env`, enable its system-assigned identity, and grant that identity `AcrPull` on `$ACR_NAME`. Then run this workflow again."
+              echo "Create Container App `$CONTAINER_APP` in environment `mlops-demo-env`, attach user-assigned identity `animal-api-pull`, grant it `AcrPull` on `$ACR_NAME`, and configure that identity for registry pulls. Then run this workflow again."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -86,7 +87,7 @@ jobs:
             --name "$CONTAINER_APP" \
             --resource-group "$RESOURCE_GROUP" \
             --server "$LOGIN_SERVER" \
-            --identity system
+            --identity "$ACR_PULL_IDENTITY"
           az containerapp update \
             --name "$CONTAINER_APP" \
             --resource-group "$RESOURCE_GROUP" \
