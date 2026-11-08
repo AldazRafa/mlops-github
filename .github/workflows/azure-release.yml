@@ -20,7 +20,6 @@ jobs:
       ACR_NAME: mlopsrafaacr
       IMAGE_NAME: animal-api
       CONTAINER_APP: animal-api
-      ACR_PULL_IDENTITY: /subscriptions/9347b919-45c5-4545-97c0-aaacebb2ea5e/resourceGroups/mlops-demo-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/animal-api-pull
 
     steps:
       - name: Check out repository
@@ -83,11 +82,6 @@ jobs:
             exit 0
           fi
 
-          az containerapp registry set \
-            --name "$CONTAINER_APP" \
-            --resource-group "$RESOURCE_GROUP" \
-            --server "$LOGIN_SERVER" \
-            --identity "$ACR_PULL_IDENTITY"
           az containerapp update \
             --name "$CONTAINER_APP" \
             --resource-group "$RESOURCE_GROUP" \
