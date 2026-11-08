@@ -1,0 +1,112 @@
+name: Release animal API to Azure
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    environment: mlops-demo
+
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      STORAGE_ACCOUNT: mlopsrafast
+      MODEL_CONTAINER: model-releases
+      MODEL_PREFIX: animal-cnn/v1
+      ACR_NAME: mlopsrafaacr
+      IMAGE_NAME: animal-api
+      CONTAINER_APP: animal-api
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Sign in to Azure with GitHub OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Container Apps CLI extension
+        run: az extension add --name containerapp --upgrade --yes
+
+      - name: Download approved model release from Blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p inference/animal-cnn
+          for file in model.keras labels.json preprocessing.json; do
+            az storage blob download \
+              --account-name "$STORAGE_ACCOUNT" \
+              --container-name "$MODEL_CONTAINER" \
+              --name "$MODEL_PREFIX/$file" \
+              --file "inference/animal-cnn/$file" \
+              --auth-mode login \
+              --overwrite true \
+              --only-show-errors
+          done
+
+      - name: Build and push image to Azure Container Registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer --output tsv)
+          az acr login --name "$ACR_NAME"
+          docker build --platform linux/amd64 \
+            --tag "$LOGIN_SERVER/$IMAGE_NAME:$GITHUB_SHA" \
+            --tag "$LOGIN_SERVER/$IMAGE_NAME:main" \
+            ./inference
+          docker push "$LOGIN_SERVER/$IMAGE_NAME:$GITHUB_SHA"
+          docker push "$LOGIN_SERVER/$IMAGE_NAME:main"
+          echo "LOGIN_SERVER=$LOGIN_SERVER" >> "$GITHUB_ENV"
+          echo "IMAGE=$LOGIN_SERVER/$IMAGE_NAME:$GITHUB_SHA" >> "$GITHUB_ENV"
+
+      - name: Deploy and check the API if its Container App exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! az containerapp show \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --output none 2>/dev/null; then
+            {
+              echo '### Image published; Container App still needs initial setup'
+              echo "Image: `$IMAGE`"
+              echo "Create Container App `$CONTAINER_APP` in environment `mlops-demo-env`, enable its system-assigned identity, and grant that identity `AcrPull` on `$ACR_NAME`. Then run this workflow again."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          az containerapp registry set \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --server "$LOGIN_SERVER" \
+            --identity system
+          az containerapp update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE"
+          az containerapp ingress update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --target-port 8000
+
+          FQDN=$(az containerapp show \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "https://$FQDN/health"; then
+              echo "API health check passed: https://$FQDN/health"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::API health endpoint did not become ready: https://$FQDN/health"
+          exit 1
