@@ -20,6 +20,7 @@ jobs:
       ACR_NAME: mlopsrafaacr
       IMAGE_NAME: animal-api
       CONTAINER_APP: animal-api
+      ACR_PULL_IDENTITY_NAME: animal-api-pull
 
     steps:
       - name: Check out repository
@@ -85,7 +86,9 @@ jobs:
           az containerapp update \
             --name "$CONTAINER_APP" \
             --resource-group "$RESOURCE_GROUP" \
-            --image "$IMAGE"
+            --image "$IMAGE" \
+            --registry-server "$LOGIN_SERVER" \
+            --registry-identity "/subscriptions/$(az account show --query id --output tsv)/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ManagedIdentity/userAssignedIdentities/$ACR_PULL_IDENTITY_NAME"
           az containerapp ingress update \
             --name "$CONTAINER_APP" \
             --resource-group "$RESOURCE_GROUP" \

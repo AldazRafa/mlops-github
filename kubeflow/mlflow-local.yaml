@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: kubeflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v3.15.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              mkdir -p /data/mlflow/artifacts &&
+              mlflow server
+              --host 0.0.0.0
+              --port 5000
+              --backend-store-uri sqlite:////data/mlflow/mlflow.db
+              --artifacts-destination file:///data/mlflow/artifacts
+              --allowed-hosts mlflow.kubeflow.svc.cluster.local:5000,localhost:5000,127.0.0.1:5000
+          ports:
+            - name: http
+              containerPort: 5000
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: mlflow-storage
+              mountPath: /data
+      volumes:
+        - name: mlflow-storage
+          persistentVolumeClaim:
+            claimName: animals-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: kubeflow
+spec:
+  selector:
+    app: mlflow
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+  type: ClusterIP

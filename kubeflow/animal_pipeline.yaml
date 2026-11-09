@@ -1,0 +1,226 @@
+# PIPELINE DEFINITION
+# Name: animal-classification-local
+# Description: Split the local animal images and train the existing CNN on Kubernetes.
+# Inputs:
+#    epochs: int [Default: 5.0]
+components:
+  comp-preprocess-animal-data:
+    executorLabel: exec-preprocess-animal-data
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-split-animal-data:
+    executorLabel: exec-split-animal-data
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-train-animal-model:
+    executorLabel: exec-train-animal-model
+    inputDefinitions:
+      parameters:
+        epochs:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-preprocess-animal-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - preprocess_animal_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'Pillow==12.3.0'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.18.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef preprocess_animal_data() -> str:\n    \"\"\"Resize each class\
+          \ to the 64x64 input size expected by the CNN.\"\"\"\n    import os\n  \
+          \  import subprocess\n    import sys\n\n    script = \"/data/components/dataprep/code/dataprep.py\"\
+          \n    for label in (\"cats\", \"dogs\", \"panda\"):\n        output_dir\
+          \ = f\"/data/work/processed/{label}\"\n        os.makedirs(output_dir, exist_ok=True)\n\
+          \        subprocess.run(\n            [\n                sys.executable,\n\
+          \                script,\n                \"--data\",\n                f\"\
+          /data/animals/{label}\",\n                \"--output_data\",\n         \
+          \       output_dir,\n            ],\n            check=True,\n        )\n\
+          \    return \"Resized all class images to 64x64 pixels.\"\n\n"
+        image: python:3.11
+    exec-split-animal-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_animal_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.18.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_animal_data() -> str:\n    \"\"\"Create a reproducible\
+          \ 80/20 split from the resized images.\"\"\"\n    import subprocess\n  \
+          \  import sys\n\n    script = \"/data/components/dataprep/code/traintestsplit.py\"\
+          \n    subprocess.run(\n        [\n            sys.executable,\n        \
+          \    script,\n            \"--datasets\",\n            \"/data/work/processed/cats\"\
+          ,\n            \"/data/work/processed/dogs\",\n            \"/data/work/processed/panda\"\
+          ,\n            \"--training_data_output\",\n            \"/data/work/train\"\
+          ,\n            \"--testing_data_output\",\n            \"/data/work/test\"\
+          ,\n            \"--validation_data_output\",\n            \"/data/work/validation\"\
+          ,\n            \"--split_size\",\n            \"15\",\n            \"--validation_size\"\
+          ,\n            \"20\",\n        ],\n        check=True,\n    )\n    return\
+          \ \"Created an 80/20 split for cats, dogs, and pandas.\"\n\n"
+        image: python:3.11
+    exec-train-animal-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_animal_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'numpy==2.3.3'\
+          \ 'scikit-learn==1.7.2' 'scipy==1.16.2' 'tensorflow==2.21.0' 'Pillow==12.3.0'\
+          \ 'mlflow==3.15.0'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.18.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_animal_model(epochs: int, model: Output[Model]):\n    \"\
+          \"\"Run the existing CNN training script and capture its model artifact.\"\
+          \"\"\n    import subprocess\n    import sys\n    import os\n\n    os.environ[\"\
+          MLFLOW_TRACKING_URI\"] = \"http://mlflow.kubeflow.svc.cluster.local:5000\"\
+          \n    os.environ[\"DATA_VERSION\"] = \"animals-local-v1\"\n\n    script\
+          \ = \"/data/components/training/code/train.py\"\n    subprocess.run(\n \
+          \       [\n            sys.executable,\n            script,\n          \
+          \  \"--training_folder\",\n            \"/data/work/train\",\n         \
+          \   \"--testing_folder\",\n            \"/data/work/test\",\n          \
+          \  \"--validation_folder\",\n            \"/data/work/validation\",\n  \
+          \          \"--output_folder\",\n            model.path,\n            \"\
+          --epochs\",\n            str(epochs),\n            \"--model_name\",\n \
+          \           \"animal-cnn\",\n        ],\n        check=True,\n    )\n\n"
+        image: python:3.11
+        resources:
+          cpuLimit: 4.0
+          cpuRequest: 2.0
+          memoryLimit: 8.589934592
+          memoryRequest: 4.294967296
+          resourceCpuLimit: '4'
+          resourceCpuRequest: '2'
+          resourceMemoryLimit: 8Gi
+          resourceMemoryRequest: 4Gi
+pipelineInfo:
+  description: Split the local animal images and train the existing CNN on Kubernetes.
+  name: animal-classification-local
+root:
+  dag:
+    tasks:
+      preprocess-animal-data:
+        cachingOptions: {}
+        componentRef:
+          name: comp-preprocess-animal-data
+        taskInfo:
+          name: preprocess-animal-data
+      split-animal-data:
+        cachingOptions: {}
+        componentRef:
+          name: comp-split-animal-data
+        dependentTasks:
+        - preprocess-animal-data
+        taskInfo:
+          name: split-animal-data
+      train-animal-model:
+        cachingOptions: {}
+        componentRef:
+          name: comp-train-animal-model
+        dependentTasks:
+        - split-animal-data
+        inputs:
+          parameters:
+            epochs:
+              componentInputParameter: epochs
+        taskInfo:
+          name: train-animal-model
+  inputDefinitions:
+    parameters:
+      epochs:
+        defaultValue: 5.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.18.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-preprocess-animal-data:
+          pvcMount:
+          - constant: animals-data
+            mountPath: /data
+            pvcNameParameter:
+              runtimeValue:
+                constant: animals-data
+        exec-split-animal-data:
+          pvcMount:
+          - constant: animals-data
+            mountPath: /data
+            pvcNameParameter:
+              runtimeValue:
+                constant: animals-data
+        exec-train-animal-model:
+          pvcMount:
+          - constant: animals-data
+            mountPath: /data
+            pvcNameParameter:
+              runtimeValue:
+                constant: animals-data

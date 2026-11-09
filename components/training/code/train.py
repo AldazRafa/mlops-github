@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 from glob import glob
 import random
@@ -10,9 +11,6 @@ from tensorflow import keras
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from sklearn.metrics import classification_report, confusion_matrix
-
-# Azure ML package for logging metrics, etc.
-from azureml.core import Run
 
 # Utility functions from utils.py
 from utils import *
@@ -39,6 +37,13 @@ def main():
         type=str,
         dest="testing_folder",
         help="Testing folder mounting point"
+    )
+
+    parser.add_argument(
+        "--validation_folder",
+        type=str,
+        default=None,
+        help="Optional validation folder; defaults to testing_folder for legacy runs"
     )
 
     parser.add_argument(
@@ -109,6 +114,9 @@ def main():
     testing_folder = args.testing_folder
     print("Testing folder:", testing_folder)
 
+    validation_folder = args.validation_folder or testing_folder
+    print("Validation folder:", validation_folder)
+
     output_folder = args.output_folder
     print("Output folder:", output_folder)
 
@@ -144,8 +152,14 @@ def main():
         recursive=True
     )
 
+    validation_paths = glob(
+        validation_folder + "/*.jpg",
+        recursive=True
+    )
+
     print("Training samples:", len(training_paths))
     print("Testing samples:", len(testing_paths))
+    print("Validation samples:", len(validation_paths))
 
     # ---------------------------------------------------------
     # SHUFFLE DATA
@@ -156,6 +170,9 @@ def main():
 
     random.seed(SEED)
     random.shuffle(testing_paths)
+
+    random.seed(SEED)
+    random.shuffle(validation_paths)
 
     print(training_paths[:3])
     print(testing_paths[:3])
@@ -170,6 +187,9 @@ def main():
     X_test = getFeatures(testing_paths)
     y_test = getTargets(testing_paths)
 
+    X_validation = getFeatures(validation_paths)
+    y_validation = getTargets(validation_paths)
+
     print("Shapes:")
     print(X_train.shape)
     print(X_test.shape)
@@ -180,10 +200,16 @@ def main():
     # ENCODE LABELS
     # ---------------------------------------------------------
 
-    LABELS, y_train, y_test = encodeLabels(
-        y_train,
-        y_test
-    )
+    if args.validation_folder:
+        LABELS, y_train, y_validation, y_test = encodeLabels(
+            y_train,
+            y_test,
+            y_validation
+        )
+    else:
+        LABELS, y_train, y_test = encodeLabels(y_train, y_test)
+        y_validation = y_test
+        X_validation = X_test
 
     print("One Hot Shapes:")
     print(y_train.shape)
@@ -285,8 +311,8 @@ def main():
             batch_size=BATCH_SIZE
         ),
         validation_data=(
-            X_test,
-            y_test
+            X_validation,
+            y_validation
         ),
         steps_per_epoch=max(
             1,
@@ -311,16 +337,26 @@ def main():
         batch_size=32
     )
 
-    print(
-        classification_report(
-            y_test.argmax(axis=1),
-            predictions.argmax(axis=1),
-            target_names=[
-                "cats",
-                "dogs",
-                "panda"
-            ]
-        )
+    class_names = [str(label) for label in LABELS]
+    report_text = classification_report(
+        y_test.argmax(axis=1),
+        predictions.argmax(axis=1),
+        target_names=class_names,
+    )
+    report = classification_report(
+        y_test.argmax(axis=1),
+        predictions.argmax(axis=1),
+        target_names=class_names,
+        output_dict=True,
+    )
+    print(report_text)
+
+    validation_predictions = model.predict(X_validation, batch_size=32)
+    validation_report = classification_report(
+        y_validation.argmax(axis=1),
+        validation_predictions.argmax(axis=1),
+        target_names=class_names,
+        output_dict=True,
     )
 
     # ---------------------------------------------------------
@@ -342,6 +378,72 @@ def main():
         ),
         cf_matrix
     )
+
+    metrics = {
+        "validation_macro_f1": float(validation_report["macro avg"]["f1-score"]),
+        "validation_accuracy": float(validation_report["accuracy"]),
+        "test_macro_f1": float(report["macro avg"]["f1-score"]),
+        "test_accuracy": float(report["accuracy"]),
+        "test_recall_cats": float(report["cats"]["recall"]),
+        "test_recall_dogs": float(report["dogs"]["recall"]),
+        "test_recall_panda": float(report["panda"]["recall"]),
+        "train_samples": len(training_paths),
+        "validation_samples": len(validation_paths),
+        "test_samples": len(testing_paths),
+    }
+    metrics_path = os.path.join(output_folder, "metrics.json")
+    with open(metrics_path, "w", encoding="utf-8") as metrics_file:
+        json.dump(metrics, metrics_file, indent=2)
+
+    labels_path = os.path.join(model_directory, "labels.json")
+    with open(labels_path, "w", encoding="utf-8") as labels_file:
+        json.dump(class_names, labels_file, indent=2)
+
+    preprocessing_path = os.path.join(model_directory, "preprocessing.json")
+    with open(preprocessing_path, "w", encoding="utf-8") as preprocessing_file:
+        json.dump(
+            {"image_size": [64, 64], "color_mode": "RGB", "normalization": "none"},
+            preprocessing_file,
+            indent=2,
+        )
+
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    if tracking_uri:
+        import mlflow
+
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("animal-classification")
+        with mlflow.start_run(run_name=model_name):
+            mlflow.log_params(
+                {
+                    "epochs": MAX_EPOCHS,
+                    "seed": SEED,
+                    "batch_size": BATCH_SIZE,
+                    "initial_learning_rate": INITIAL_LEARNING_RATE,
+                    "data_version": os.environ.get("DATA_VERSION", "animals-local-v1"),
+                }
+            )
+            mlflow.log_metrics({key: value for key, value in metrics.items()})
+            mlflow.set_tags({"pipeline": "kubeflow", "model_status": "baseline"})
+            mlflow.log_artifact(metrics_path, artifact_path="evaluation")
+            mlflow.log_artifact(labels_path, artifact_path="model")
+            mlflow.log_artifact(preprocessing_path, artifact_path="model")
+            mlflow.log_artifact(model_path, artifact_path="model")
+            mlflow.log_artifact(
+                os.path.join(output_folder, "confusion_matrix.npy"),
+                artifact_path="evaluation",
+            )
+            mlflow.keras.log_model(
+                model,
+                name="animal-cnn",
+                registered_model_name="animal-cnn",
+                pip_requirements=[
+                    "tensorflow==2.21.0",
+                    "numpy==2.3.3",
+                    "Pillow==12.3.0",
+                ],
+                tags={"model_status": "baseline"},
+            )
 
     print("DONE TRAINING")
 

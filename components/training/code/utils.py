@@ -12,16 +12,22 @@ def getTargets(filepaths: List[str]) -> List[str]:
 
     return labels
 
-def encodeLabels(y_train: List, y_test: List):
+def encodeLabels(y_train: List, y_test: List, y_validation: List = None):
     label_encoder = LabelEncoder()
     y_train_labels = label_encoder.fit_transform(y_train)
     y_test_labels = label_encoder.transform(y_test)
 
-    y_train_1h = to_categorical(y_train_labels)
-    y_test_1h = to_categorical(y_test_labels)
+    number_of_classes = len(label_encoder.classes_)
+    y_train_1h = to_categorical(y_train_labels, num_classes=number_of_classes)
+    y_test_1h = to_categorical(y_test_labels, num_classes=number_of_classes)
 
     LABELS = label_encoder.classes_
     print(f"{LABELS} -- {label_encoder.transform(LABELS)}")
+
+    if y_validation is not None:
+        y_validation_labels = label_encoder.transform(y_validation)
+        y_validation_1h = to_categorical(y_validation_labels, num_classes=number_of_classes)
+        return LABELS, y_train_1h, y_validation_1h, y_test_1h
 
     return LABELS, y_train_1h, y_test_1h
 
